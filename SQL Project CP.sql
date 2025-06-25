@@ -1,0 +1,209 @@
+﻿
+--1. Male employees with net salary ≥ 8000 ordered by seniority (descending)
+
+SELECT 
+    EMPLOYEE_NUMBER,
+    FIRST_NAME,
+    LAST_NAME,
+    DATEDIFF(YEAR, BIRTH_DATE, GETDATE()) AS Age,
+    DATEDIFF(YEAR, HIRE_DATE, GETDATE()) AS Seniority
+FROM 
+    EMPLOYEES
+WHERE 
+    GENDER = 'M' 
+    AND (SALARY + ISNULL(COMMISSION, 0)) >= 8000
+ORDER BY 
+    Seniority DESC;
+
+--2. Products meeting criteria (packaged in bottle(s), 3rd char 't'/'T', supplied by 1,2,3, price 70-200, units ordered not null)
+
+SELECT 
+    PRODUCT_REF,
+    PRODUCT_NAME,
+    SUPPLIER_NUMBER,
+    UNITS_ON_ORDER,
+    UNIT_PRICE
+FROM 
+    PRODUCTS
+WHERE 
+    QUANTITY LIKE '%bottle%'
+    AND (SUBSTRING(PRODUCT_NAME, 3, 1) = 't' OR SUBSTRING(PRODUCT_NAME, 3, 1) = 'T')
+    AND SUPPLIER_NUMBER IN (1, 2, 3)
+    AND UNIT_PRICE BETWEEN 70 AND 200
+    AND UNITS_ON_ORDER IS NOT NULL;
+
+--3. Customers in same region as supplier 1 (same country, city, last 3 digits of postal code)
+
+SELECT * 
+FROM CUSTOMERS C
+WHERE 
+    C.COUNTRY = (SELECT COUNTRY FROM SUPPLIERS WHERE SUPPLIER_NUMBER = 1)
+    AND C.CITY = (SELECT CITY FROM SUPPLIERS WHERE SUPPLIER_NUMBER = 1)
+    AND RIGHT(C.POSTAL_CODE, 3) = (SELECT RIGHT(POSTAL_CODE, 3) FROM SUPPLIERS WHERE SUPPLIER_NUMBER = 1);
+
+--4. Orders between 10998 and 11003: new discount rate and discount rate application note
+
+SELECT 
+    O.ORDER_NUMBER,
+    CASE
+        WHEN TotalBeforeDiscount BETWEEN 0 AND 2000 THEN 0
+        WHEN TotalBeforeDiscount BETWEEN 2001 AND 10000 THEN 5
+        WHEN TotalBeforeDiscount BETWEEN 10001 AND 40000 THEN 10
+        WHEN TotalBeforeDiscount BETWEEN 40001 AND 80000 THEN 15
+        ELSE 20
+    END AS NewDiscountRate,
+    CASE 
+        WHEN O.ORDER_NUMBER BETWEEN 10000 AND 10999 THEN 'apply old discount rate'
+        ELSE 'apply new discount rate'
+    END AS DiscountRateNote
+FROM 
+    ORDERS O
+JOIN (
+    SELECT 
+        ORDER_NUMBER,
+        SUM(UNIT_PRICE * QUANTITY) AS TotalBeforeDiscount
+    FROM 
+        ORDER_DETAILS
+    GROUP BY 
+        ORDER_NUMBER
+) AS OD ON O.ORDER_NUMBER = OD.ORDER_NUMBER
+WHERE 
+    O.ORDER_NUMBER BETWEEN 10998 AND 11003;
+
+--5. Suppliers of beverage products
+
+SELECT DISTINCT
+    S.SUPPLIER_NUMBER,
+    S.COMPANY,
+    S.ADDRESS,
+    S.PHONE
+FROM 
+    SUPPLIERS S
+JOIN 
+    PRODUCTS P ON S.SUPPLIER_NUMBER = P.SUPPLIER_NUMBER
+JOIN 
+    CATEGORIES C ON P.CATEGORY_CODE = C.CATEGORY_CODE
+WHERE 
+    C.CATEGORY_NAME = 'Beverages';
+
+--6. Customers from Berlin who ordered at most 1 dessert product
+
+SELECT 
+    C.CUSTOMER_CODE
+FROM 
+    CUSTOMERS C
+LEFT JOIN 
+    ORDERS O ON C.CUSTOMER_CODE = O.CUSTOMER_CODE
+LEFT JOIN 
+    ORDER_DETAILS OD ON O.ORDER_NUMBER = OD.ORDER_NUMBER
+LEFT JOIN 
+    PRODUCTS P ON OD.PRODUCT_REF = P.PRODUCT_REF
+LEFT JOIN 
+    CATEGORIES CAT ON P.CATEGORY_CODE = CAT.CATEGORY_CODE
+WHERE 
+    C.CITY = 'Berlin'
+    AND (CAT.CATEGORY_NAME = 'Desserts' OR CAT.CATEGORY_NAME IS NULL)
+GROUP BY 
+    C.CUSTOMER_CODE
+HAVING 
+    COUNT(CASE WHEN CAT.CATEGORY_NAME = 'Desserts' THEN 1 END) <= 1;
+
+--7. Customers in France and total orders placed every Monday in April 1998 (include customers with no orders)
+
+SELECT 
+    C.CUSTOMER_CODE,
+    C.COMPANY,
+    C.PHONE,
+    C.COUNTRY,
+    ISNULL(SUM(OD_TOTAL.TotalAmount), 0) AS TotalAmount
+FROM 
+    CUSTOMERS C
+LEFT JOIN (
+    SELECT 
+        O.CUSTOMER_CODE,
+        SUM(OD.UNIT_PRICE * OD.QUANTITY * (1 - OD.DISCOUNT)) AS TotalAmount,
+        O.ORDER_DATE
+    FROM 
+        ORDERS O
+    JOIN 
+        ORDER_DETAILS OD ON O.ORDER_NUMBER = OD.ORDER_NUMBER
+    WHERE 
+        O.ORDER_DATE >= '1998-04-01' AND O.ORDER_DATE < '1998-05-01'
+        AND DATEPART(WEEKDAY, O.ORDER_DATE) = 2 
+    GROUP BY 
+        O.CUSTOMER_CODE, O.ORDER_DATE
+) AS OD_TOTAL ON C.CUSTOMER_CODE = OD_TOTAL.CUSTOMER_CODE
+WHERE 
+    C.COUNTRY = 'France'
+GROUP BY 
+    C.CUSTOMER_CODE, C.COMPANY, C.PHONE, C.COUNTRY;
+
+--8. Customers who ordered all products
+
+SELECT 
+    C.CUSTOMER_CODE,
+    C.COMPANY,
+    C.PHONE
+FROM 
+    CUSTOMERS C
+WHERE NOT EXISTS (
+    SELECT P.PRODUCT_REF
+    FROM PRODUCTS P
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM ORDERS O
+        JOIN ORDER_DETAILS OD ON O.ORDER_NUMBER = OD.ORDER_NUMBER
+        WHERE O.CUSTOMER_CODE = C.CUSTOMER_CODE
+        AND OD.PRODUCT_REF = P.PRODUCT_REF
+    )
+);
+
+--9. Number of orders placed by each customer from France
+
+SELECT 
+    C.CUSTOMER_CODE,
+    COUNT(O.ORDER_NUMBER) AS NumberOfOrders
+FROM 
+    CUSTOMERS C
+LEFT JOIN 
+    ORDERS O ON C.CUSTOMER_CODE = O.CUSTOMER_CODE
+WHERE 
+    C.COUNTRY = 'France'
+GROUP BY 
+    C.CUSTOMER_CODE;
+
+--10. Number of orders placed in 1996, 1997, and the difference
+
+SELECT 
+    SUM(CASE WHEN YEAR(O.ORDER_DATE) = 1996 THEN 1 ELSE 0 END) AS OrdersIn1996,
+    SUM(CASE WHEN YEAR(O.ORDER_DATE) = 1997 THEN 1 ELSE 0 END) AS OrdersIn1997,
+    SUM(CASE WHEN YEAR(O.ORDER_DATE) = 1996 THEN 1 ELSE 0 END) - SUM(CASE WHEN YEAR(O.ORDER_DATE) = 1997 THEN 1 ELSE 0 END) AS Difference
+FROM 
+    ORDERS O
+WHERE 
+    YEAR(O.ORDER_DATE) IN (1996, 1997);
+
+	--11. Display for each customer from France the number of orders they have placed
+
+SELECT 
+    C.CUSTOMER_CODE,
+    COUNT(O.ORDER_NUMBER) AS NumberOfOrders
+FROM 
+    CUSTOMERS C
+LEFT JOIN 
+    ORDERS O ON C.CUSTOMER_CODE = O.CUSTOMER_CODE
+WHERE 
+    C.COUNTRY = 'France'
+GROUP BY 
+    C.CUSTOMER_CODE;
+
+--12. Display the number of orders placed in 1996, the number of orders placed in 1997, and the difference between these two numbers
+
+SELECT 
+    SUM(CASE WHEN YEAR(O.ORDER_DATE) = 1996 THEN 1 ELSE 0 END) AS OrdersIn1996,
+    SUM(CASE WHEN YEAR(O.ORDER_DATE) = 1997 THEN 1 ELSE 0 END) AS OrdersIn1997,
+    SUM(CASE WHEN YEAR(O.ORDER_DATE) = 1996 THEN 1 ELSE 0 END) - SUM(CASE WHEN YEAR(O.ORDER_DATE) = 1997 THEN 1 ELSE 0 END) AS Difference
+FROM 
+    ORDERS O
+WHERE 
+    YEAR(O.ORDER_DATE) IN (1996, 1997);
